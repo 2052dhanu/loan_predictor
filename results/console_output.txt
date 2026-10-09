@@ -1,0 +1,128 @@
+
+==============================================================================
+1. DATA  (simulated from the ground-truth network)
+==============================================================================
+5000 applicants saved to /home/claude/loan_default_bn/data/loan_data.csv
+  Employment  Income CreditHistory ExistingDebt DefaultRisk
+0     Stable  Medium          Good          Low          No
+1     Stable    High          Good          Low         Yes
+2     Stable    High          Fair          Low          No
+3     Stable  Medium          Poor         High          No
+4   Unstable     Low          Poor         High         Yes
+
+Default rate in data: 0.281
+
+==============================================================================
+2. STRUCTURE: independence, I-map, Markov blanket
+==============================================================================
+Edges: [('Employment', 'Income'), ('Income', 'CreditHistory'), ('Income', 'ExistingDebt'), ('Income', 'DefaultRisk'), ('CreditHistory', 'DefaultRisk'), ('ExistingDebt', 'DefaultRisk')]
+Free parameters: 32 (a full joint table would need 71 )
+Markov blanket of Income: ['CreditHistory', 'DefaultRisk', 'Employment', 'ExistingDebt']
+
+Local Markov independencies (X _|_ non-descendants | parents):
+  CreditHistory _|_ ['Employment', 'ExistingDebt'] | ['Income']
+  ExistingDebt _|_ ['CreditHistory', 'Employment'] | ['Income']
+  DefaultRisk _|_ ['Employment'] | ['Income', 'CreditHistory', 'ExistingDebt']
+
+d-separation queries (True => conditionally independent in every distribution of this I-map):
+  Employment     _|_ DefaultRisk   | ['Income']                   -> True
+  Employment     _|_ DefaultRisk   | []                           -> False
+  CreditHistory  _|_ ExistingDebt  | ['Income']                   -> True
+  CreditHistory  _|_ ExistingDebt  | []                           -> False
+  CreditHistory  _|_ ExistingDebt  | ['Income', 'DefaultRisk']    -> False
+  Employment     _|_ CreditHistory | ['Income']                   -> True
+
+==============================================================================
+3. PARAMETER LEARNING (Bayesian estimate, Dirichlet alpha=1)
+==============================================================================
+Learned CPT P(DefaultRisk | Income, CreditHistory, ExistingDebt):
+                                   DefaultRisk=No  DefaultRisk=Yes
+Income CreditHistory ExistingDebt                                 
+Low    Poor          Low                    0.436            0.564
+                     High                   0.248            0.752
+       Fair          Low                    0.678            0.322
+                     High                   0.477            0.523
+       Good          Low                    0.869            0.131
+                     High                   0.691            0.309
+Medium Poor          Low                    0.615            0.385
+                     High                   0.291            0.709
+       Fair          Low                    0.848            0.152
+                     High                   0.640            0.360
+       Good          Low                    0.943            0.057
+                     High                   0.838            0.162
+High   Poor          Low                    0.757            0.243
+                     High                   0.439            0.561
+       Fair          Low                    0.903            0.097
+                     High                   0.732            0.268
+       Good          Low                    0.960            0.040
+                     High                   0.906            0.094
+
+KL(true || learned Bayes) = 0.00248   KL(true || MLE) = 0.00252
+avg log-likelihood on training data: -3.6904
+
+==============================================================================
+4. EXACT INFERENCE (Variable Elimination)
+==============================================================================
+P(DefaultRisk | no evidence)
+   No=0.7184, Yes=0.2816
+   P(evidence)=1.0000  order=['Employment', 'CreditHistory', 'ExistingDebt', 'Income']  largest factor=36  matches enumeration: True
+P(DefaultRisk | {'CreditHistory': 'Poor', 'ExistingDebt': 'High'})
+   No=0.2711, Yes=0.7289
+   P(evidence)=0.1272  order=['Employment', 'Income']  largest factor=6  matches enumeration: True
+P(DefaultRisk | {'Employment': 'Stable', 'Income': 'High', 'CreditHistory': 'Good'})
+   No=0.9426, Yes=0.0574
+   P(evidence)=0.1771  order=['ExistingDebt']  largest factor=4  matches enumeration: True
+P(Employment | {'DefaultRisk': 'Yes'})
+   Unstable=0.4250, Stable=0.5750
+   P(evidence)=0.2816  order=['CreditHistory', 'ExistingDebt', 'Income']  largest factor=18  matches enumeration: True
+
+Explaining away (collider DefaultRisk <- CreditHistory, ExistingDebt), given Income=Medium, DefaultRisk=Yes:
+   P(CreditHistory=Poor | ...) = 0.4128  ->  0.3870 after also observing ExistingDebt=High
+   (high debt already explains the default, so a poor credit history becomes less likely)
+
+==============================================================================
+5. MAP / MPE
+==============================================================================
+MAP  argmax P(Employment, Income | DefaultRisk=Yes): ({'Employment': 'Unstable', 'Income': 'Low'}, 0.31629822575104627)
+MPE  most probable explanation of DefaultRisk=Yes:   ({'Employment': 'Unstable', 'Income': 'Low', 'CreditHistory': 'Poor', 'ExistingDebt': 'High'}, 0.1378588929815404)
+
+==============================================================================
+6. EXACT vs APPROXIMATE INFERENCE
+==============================================================================
+Query P(DefaultRisk | {'CreditHistory': 'Poor', 'ExistingDebt': 'High'}), 20000 samples each
+   exact (VE)             No=0.2711, Yes=0.7289
+   rejection              No=0.2826, Yes=0.7174   [accepted=2.56e+03, seconds=0.00777]
+   likelihood_weighting   No=0.2715, Yes=0.7285   [effective_sample_size=1.13e+04, seconds=0.00507]
+   gibbs                  No=0.2705, Yes=0.7295   [burn_in=500, seconds=1.02]
+   Gelman-Rubin R-hat over 4 Gibbs chains: 1.0000 (close to 1 = converged)
+
+==============================================================================
+7. EXPERIMENTS (plots are written to ./results)
+==============================================================================
+
+[moderate evidence]  exact P = 0.7289
+  Rejection sampling     final mean |error| = 0.00478 (50000 samples, 0.35s for 20 runs, acceptance rate 12.690%)
+  Likelihood weighting   final mean |error| = 0.00224 (50000 samples, 0.21s for 20 runs)
+  Gibbs sampling         final mean |error| = 0.00210 (20000 samples, 1.05s for 20 runs)
+  saved /home/claude/loan_default_bn/results/convergence_moderate_evidence.png
+
+[rare evidence]  exact P = 0.6217
+  Rejection sampling     final mean |error| = 0.01162 (50000 samples, 0.35s for 20 runs, acceptance rate 2.517%)
+  Likelihood weighting   final mean |error| = 0.00238 (50000 samples, 0.09s for 20 runs)
+  Gibbs sampling         final mean |error| = 0.00306 (20000 samples, 0.32s for 20 runs)
+  saved /home/claude/loan_default_bn/results/convergence_rare_evidence.png
+
+Median KL(true || learned):
+method  Bayesian (alpha=1)     MLE
+n                                 
+20                 0.33961 4.54682
+50                 0.20251 2.29408
+100                0.09833 1.11442
+200                0.06264 0.35265
+500                0.02979 0.10673
+1000               0.01636 0.01798
+5000               0.00304 0.00310
+20000              0.00078 0.00078
+saved /home/claude/loan_default_bn/results/learning_curve.png
+
+Done.
